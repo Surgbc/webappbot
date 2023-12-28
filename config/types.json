@@ -1,0 +1,15 @@
+{
+    "string": "string",
+    "text": "string",
+    "email": "string",
+    "password": {"type":"string","length":64},
+    "telephone": {"type":"string","length":16},
+    "boolean": "bool",
+    "time": "time.Time",
+    "date": "time.Time",
+    "uuid": "uuid.UUID",
+    "integer": "int",
+    "int": "int",
+    "float": "float",
+    "double": "float"
+}

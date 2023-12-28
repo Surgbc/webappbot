@@ -1,0 +1,131 @@
+{
+    "create/c": {
+        "description": "Create new webappbot project",
+        "__run": "create",
+        "backend/b": {
+            "description": "New backend project",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "create",
+                    "type": "backend"
+                }
+            },
+            "required": {
+                "n": {
+                    "description": "name of project",
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "frontend/f": {
+        "description": "New frontend project",
+        "__run": {
+            "func": "generic",
+            "args": {
+                "action": "create",
+                "type": "frontend"
+            }
+        },
+        "required": {
+            "n": {
+                "description": "nname of projecte",
+                "type": "string"
+            }
+        }
+    },
+    "update/u": {
+        "description": "Update to the latest version",
+        "__run": {
+            "func": "generic",
+            "args": {
+                "action": "update"
+            }
+        }
+    },
+    "download/d": {
+        "description": "Download google sheet from drive and save as xlsx",
+        "__run": "downloadFromDrive",
+        "json/j": {
+            "description": "Download google sheet from drive and convert to JSON",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "downloadFromDriveToJson"
+                }
+            }
+        }
+    },
+    "rename/r": {
+        "description": "Rename application",
+        "mod/m": {
+            "description": "Change name in go.mod",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "rename",
+                    "type": "module"
+                }
+            },
+            "required": {
+                "n": {
+                    "description": "new module name",
+                    "type": "string"
+                }
+            }
+        },
+        "app/a": {
+            "description": "Change app name in other places",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "rename",
+                    "type": "app"
+                }
+            },
+            "required": {
+                "n": {
+                    "description": "new module name",
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "process/p": {
+        "description": "Process downloaded file",
+        "models/m": {
+            "description": "Create code for models",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "processModels"
+                }
+            },
+            "optional": {
+                "download/d": "Download before processing"
+            }
+        },
+        "routes/r": {
+            "description": "Create code for routes",
+            "__run": "createRoutesCode",
+            "optional": {
+                "download/d": "Download before processing"
+            }
+        },
+        "controllers/c": {
+            "description": "Create code for controllers",
+            "__run": "createControllersCode",
+            "optional": {
+                "download/d": "Download before processing"
+            }
+        },
+        "validators/v": {
+            "description": "Create code for validators",
+            "__run": "createValidatorsCode",
+            "optional": {
+                "download/d": "Download before processing"
+            }
+        }
+    }
+}
