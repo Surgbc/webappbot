@@ -1,6 +1,6 @@
 # webappbot CLI
 
-A CLI for webappbot.
+Webappbot is an automation tool for building both backend and frontend web applications.
 
 ## Customizing your CLI
 

@@ -192,6 +192,81 @@ const replaceWebAppTypesWithModelType = (modelsData) => {
     modelsData[packageName] = packageData
   }
 }
+
+/**
+ * Segregates API sections within the models' data.
+ *
+ * @param {Object} modelsData - Data containing models grouped by package name.
+ * @returns {Object} Modified models data with segregated API sections.
+ */
+const segregateAPISections = (modelsData) => {
+  // types
+  for (let packageName in modelsData) {
+    let packageData = modelsData[packageName]
+    for (let modelName in packageData) {
+      let modelData = packageData[modelName]
+
+      for (let field in modelData) {
+        let apiData = {}
+        let keys = Object.keys(modelData[field])
+        keys.map((key) => {
+          let bby = modelData[field][key]
+          if (
+            ['create', 'read', 'update', 'delete'].includes(
+              key.toLocaleLowerCase()
+            ) &&
+            ['required', 'optional'].includes(bby.toLocaleLowerCase())
+          ) {
+            delete modelData[field][key]
+            apiData[key.toLocaleLowerCase()] = bby.toLocaleLowerCase()
+          }
+        })
+        if (Object.keys(apiData).length > 0) {
+          modelData[field]['api'] = apiData
+        }
+      }
+
+      packageData[modelName] = modelData
+    }
+    modelsData[packageName] = packageData
+  }
+}
+
+const processRoutesDataFromModelsData = (routesData) => {
+  let reorganized = {}
+  for (let packageName in routesData) {
+    reorganized[packageName] = reorganized[packageName] || {}
+    let packageData = routesData[packageName]
+    for (let modelName in packageData) {
+      reorganized[packageName][modelName] = reorganized[packageName][
+        modelName
+      ] || { create: [], read: [], update: [], delete: [] }
+      let modelData = packageData[modelName]
+
+      for (let field in modelData) {
+        let keys = Object.keys(modelData[field])
+        keys.map((key) => {
+          if (key !== 'api') delete modelData[field][key]
+        })
+        if (Object.keys(modelData[field]).length === 0) delete modelData[field]
+      }
+      ;['create', 'read', 'update', 'delete'].map((action) => {
+        console.log(action)
+        reorganized[packageName][modelName][action] = Object.keys(
+          modelData
+        ).filter((field) => {
+          return Object.keys(modelData[field]['api']).includes(action)
+        })
+        if (
+          Object.keys(reorganized[packageName][modelName][action]).length == 0
+        )
+          delete reorganized[packageName][modelName][action]
+      })
+    }
+  }
+  Object.assign(routesData, reorganized)
+  return routesData
+}
 /**
  * Converts data from an Excel file (in xlsx format) to a JSON structure based on specific sheet structures.
  * It extracts information from the imported Excel file, organizes it according to predefined structures,
@@ -212,18 +287,29 @@ const xlsxToJSON = async () => {
       dataDirectory,
       modelsFileName
     )
+    const routesFilePath = path.join(
+      process.cwd(),
+      dataDirectory,
+      'routesFromModels.json'
+    )
 
     let { modelsData, partials } =
       getModelsDataAndPartialsFromWorkbook(workbook)
     fillPartials(modelsData, partials)
     replaceWebAppTypesWithModelType(modelsData)
+    // api
+    segregateAPISections(modelsData)
+    let routesData = Object.assign({}, modelsData)
+    processRoutesDataFromModelsData(routesData)
 
-    // Convert JSON data to a string
     const jsonString = JSON.stringify(modelsData, null, 2) // null and 2 for pretty formatting
+    const jsonStringRoutes = JSON.stringify(routesData, null, 2) // null and 2 for pretty formatting
+    console.log(routesData)
 
     // Write JSON string to a file
     try {
       fs.writeFileSync(modelsFilePath, jsonString)
+      fs.writeFileSync(routesFilePath, jsonStringRoutes)
       console.log('JSON data has been saved to', modelsFilePath)
     } catch (err) {
       console.error('Error writing file:', err)
@@ -255,8 +341,12 @@ const readTemplateData = (template) => {
  * @returns {object} An object containing the JSON data retrieved from the 'models.json' file.
  * @throws {Error} If there's an error while reading or parsing the 'models.json' file.
  */
-const readModelsData = () => {
-  const jsonPath = path.join(process.cwd(), 'data', 'models.json')
+const readModelsData = (jsonFilePath = '') => {
+  const jsonPath = path.join(
+    process.cwd(),
+    'data',
+    jsonFilePath == '' ? 'models.json' : jsonFilePath
+  )
   const modelsData = require(jsonPath)
   return modelsData
 }
@@ -267,7 +357,7 @@ const readModelsData = () => {
 const createModelsDirectories = () => {
   let modelsData = readModelsData()
   for (const package_ of Object.keys(modelsData)) {
-    let modelDir = path.join(process.cwd(), 'src', 'models', package_)
+    let modelDir = path.join(process.cwd(), 'local-src', 'models', package_)
     if (!fs.existsSync(modelDir)) {
       // fs.mkdirSync(modelDir)
       fs.mkdirSync(modelDir, { recursive: true })
@@ -276,6 +366,48 @@ const createModelsDirectories = () => {
       // fs.mkdirSync(modelDir)
       fs.mkdirSync(modelDir, { recursive: true })
     }
+  }
+}
+/**
+ * Creates directories for routes
+ */
+const createRoutesDirectories = () => {
+  let routesDir = path.join(process.cwd(), 'local-src', 'systemRoutes')
+  if (!fs.existsSync(routesDir)) {
+    // fs.mkdirSync(modelDir)
+    fs.mkdirSync(routesDir, { recursive: true })
+  } else {
+    fs.removeSync(routesDir)
+    // fs.mkdirSync(modelDir)
+    fs.mkdirSync(routesDir, { recursive: true })
+  }
+  let routeGlobalsTemplateContent = readTemplateData('routeGlobals')
+  let routeGlobalsFile = path.join(routesDir, `globals_.go`)
+  fs.writeFileSync(routeGlobalsFile, routeGlobalsTemplateContent, (err) => {
+    if (err) {
+      console.error('Error writing file:', err)
+    }
+  })
+}
+/**
+ * Creates directories for controllers based on the keys obtained from model data.
+ */
+const createControllersDirectories = () => {
+  let modelsData = readModelsData('routesFromModels.json')
+  for (const package_ of Object.keys(modelsData)) {
+    let modelDir = path.join(
+      process.cwd(),
+      'local-src',
+      'controllers',
+      package_
+    )
+    if (!fs.existsSync(modelDir)) {
+      fs.mkdirSync(modelDir, { recursive: true })
+    }
+    // else { // do not interfere with existing controllers
+    //   fs.removeSync(modelDir)
+    //   fs.mkdirSync(modelDir, { recursive: true })
+    // }
   }
 }
 /**
@@ -315,22 +447,6 @@ const readModulePath = () => {
  */
 const processModels = async () => {
   /**
-   * Creates variables based on the provided package name.
-   *
-   * @param {string} package_ - The name of the package.
-   * @returns {Object} An object containing variables derived from the provided package name:
-   *                    - 'packageCamelCase': The camelCase version of the package name.
-   *                    - 'modelDir': The path to the model directory corresponding to the package.
-   *                    - 'packageData': Data associated with the provided package name from modelsData.
-   */
-  const createPackageVariables = (package_) => {
-    let packageCamelCase = _.camelCase(package_)
-    let modelDir = path.join(process.cwd(), 'src', 'models', package_)
-    let packageData = modelsData[package_]
-    return { packageCamelCase, modelDir, packageData }
-  }
-
-  /**
    * Lists model packages and their import strings based on available data in 'modelsData' and the 'go.mod' file.
    *
    * @returns {Array} An array containing import strings for model packages as per the 'modelsData' and 'go.mod' file.
@@ -345,25 +461,6 @@ const processModels = async () => {
     }
     modelImportStrs.unshift(`"${modulePath}/config"`)
     return modelImportStrs
-  }
-
-  /**
-   * Creates variables based on the provided model and package data.
-   *
-   * @param {string} model - The name of the model.
-   * @param {Object} packageData - Data associated with the package containing the model.
-   * @returns {Object} An object containing variables derived from the provided model and package data:
-   *                    - 'imports': An array to store import statements.
-   *                    - 'modelCamelCase': The camelCase version of the model name.
-   *                    - 'fields': Fields associated with the provided model from the package data.
-   *                    - 'primary': A variable representing whether current field is a primary key field; initialized as 'false'.
-   */
-  const createPackageDataVariables = (model, packageData) => {
-    let imports = []
-    let modelCamelCase = _.camelCase(model)
-    let fields = packageData[model]
-    let primary: any = false
-    return { imports, modelCamelCase, fields, primary }
   }
 
   /**
@@ -653,8 +750,10 @@ const processModels = async () => {
   let allModelStrs = []
   let allModelsWithHierarchyData = {}
   for (const package_ of Object.keys(modelsData)) {
-    let { packageCamelCase, modelDir, packageData } =
-      createPackageVariables(package_)
+    let { packageCamelCase, modelDir, packageData } = createPackageVariables(
+      modelsData,
+      package_
+    )
     for (const model of Object.keys(packageData)) {
       let { imports, modelCamelCase, fields, primary } =
         createPackageDataVariables(model, packageData)
@@ -731,7 +830,7 @@ const processModels = async () => {
       imports: modelPackages,
       allModelStrs,
     })
-    const directory = path.join(process.cwd(), 'src', 'db')
+    const directory = path.join(process.cwd(), 'local-src', 'db')
     if (!fs.existsSync(directory)) {
       fs.mkdirSync(directory)
     }
@@ -951,7 +1050,7 @@ const downloadAndUnzipFromGithub = async (name, action = 'create') => {
           renameModuleName(name)
           await to(downloadFromDriveAndConvertToJson())
           await to(processModels())
-          // add : process controllers
+          await to(processRoutes())
           // add : process routes
         } else {
           const files = fs.readdirSync(path.join(tempDir, firstDir))
@@ -1039,6 +1138,173 @@ const update = async (args, supplied) => {
   await downloadAndUnzipFromGithub('', 'update')
 }
 
+/**
+ * Creates variables based on the provided package name.
+ *
+ * @param {string} package_ - The name of the package.
+ * @returns {Object} An object containing variables derived from the provided package name:
+ *                    - 'packageCamelCase': The camelCase version of the package name.
+ *                    - 'modelDir': The path to the model directory corresponding to the package.
+ *                    - 'packageData': Data associated with the provided package name from modelsData.
+ */
+const createPackageVariables = (modelsData, package_) => {
+  let packageCamelCase = _.camelCase(package_)
+  let modelDir = path.join(process.cwd(), 'local-src', 'models', package_)
+  let controllerDir = path.join(
+    process.cwd(),
+    'local-src',
+    'controllers',
+    package_
+  )
+  let routesDir = path.join(process.cwd(), 'local-src', 'routes', package_)
+  let packageData = modelsData[package_]
+  let packageTitleCase = packageCamelCase[0].toUpperCase() + packageCamelCase.slice(-(packageCamelCase.length-1))
+  // packageTitleCase[0] = packageTitleCase[0].toUpperCase()
+  return {
+    packageCamelCase,
+    modelDir,
+    controllerDir,
+    routesDir,
+    packageData,
+    packageTitleCase,
+  }
+}
+
+/**
+ * Creates variables based on the provided model and package data.
+ *
+ * @param {string} model - The name of the model.
+ * @param {Object} packageData - Data associated with the package containing the model.
+ * @returns {Object} An object containing variables derived from the provided model and package data:
+ *                    - 'imports': An array to store import statements.
+ *                    - 'modelCamelCase': The camelCase version of the model name.
+ *                    - 'fields': Fields associated with the provided model from the package data.
+ *                    - 'primary': A variable representing whether current field is a primary key field; initialized as 'false'.
+ */
+const createPackageDataVariables = (model, packageData) => {
+  let imports = []
+  let modelCamelCase = _.camelCase(model)
+  let fields = packageData[model]
+  let primary: any = false
+  return { imports, modelCamelCase, fields, primary }
+}
+
+const processRoutes = async (supplied:any = false) => {
+  console.log(supplied)
+  // let isDev = 
+  let isDevEnv:any = (supplied["-d"] || supplied["d"]) 
+  isDevEnv = isDevEnv
+  let modelsData = readModelsData('routesFromModels.json')
+  createControllersDirectories()
+  let templateContent = readTemplateData('controllers')
+  let modulePath = readModulePath()
+  {
+    // routes setup
+    createRoutesDirectories()
+  }
+  for (const package_ of Object.keys(modelsData)) {
+    let {
+      packageCamelCase,
+      packageTitleCase,
+      controllerDir /*, routesDir*/,
+      packageData,
+    } = createPackageVariables(modelsData, package_)
+
+    {
+      let routesDir = path.join(process.cwd(), 'local-src', 'systemRoutes')
+      let routesTemplate = readTemplateData('route')
+      let routeFile = path.join(routesDir, `${packageCamelCase}.go`)
+      let models = {}
+      let routeGroupsStrs = []
+      for (const model of Object.keys(packageData)) {
+        let {  modelCamelCase /*, fields*/ } = createPackageDataVariables(
+          model,
+          packageData
+        )
+        let actions = Object.keys(packageData[model])
+        models[model] = Object.keys(packageData[model])
+        let codeActionNamesMaps = {
+          "create": "Post",
+          "read": "Get",
+          "update": "Patch",
+          "delete": "Delete"
+        }
+        actions.map(action=>{
+          let actionTitleCase = action[0].toUpperCase() + action.slice(-(action.length-1))
+          routeGroupsStrs.push(`${packageCamelCase}.${codeActionNamesMaps[action]}("/${modelCamelCase}", ${packageCamelCase}Controller.${actionTitleCase}${model})`)
+        })
+      }
+
+      let routeGroupsStr = routeGroupsStrs.join("\n\t")
+
+      console.log(models)
+      let renderized = ejs.render(routesTemplate, {
+        package: packageCamelCase,
+        packageTitleCase,
+        routeGroupsStr,
+        modulePath
+      })
+      fs.writeFileSync(routeFile, renderized, (err) => {
+        if (err) {
+          console.error('Error writing file:', err)
+        }
+      })
+    }
+
+    for (const model of Object.keys(packageData)) {
+      let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
+        model,
+        packageData
+      )
+      // let parentModel: any = false
+      // for (let fieldKey in fields) {
+      //   let { field /*type /*, typeFromTypes */ } = createFieldVariables(
+      //     fields[fieldKey]
+      //   )
+      //   createRelationShips(fields, fieldKey, packageCamelCase, imports)
+      //   updateField(fields, field, fieldKey, parentModel)
+      // }
+      // // parentModel.value = false
+      // for (let fieldKey in fields) {
+      //   let { field, type /*, typeFromTypes */ } = createFieldVariables(
+      //     fields[fieldKey]
+      //   )
+      //   addToImports(type, imports)
+      //   setDefaultFieldType(field)
+      //   setPrimarykey(primary, fieldKey, field, imports)
+      //   setDefaultValue(field)
+      //   setFieldLength(field)
+      //   setTimeType(field)
+      //   setIntType(field)
+      //   setFloatType(field)
+      //   updateField(fields, field, fieldKey, parentModel)
+      // }
+
+      // console.log({ packageCamelCase, model , parentModel:parentModel})
+      let renderized = ejs.render(templateContent, {
+        package: packageCamelCase,
+        modelCamelCase,
+        modelTitleCase: model,
+        // fields,
+        // Primary: primary,
+        imports,
+        packageTitleCase,
+      })
+      // correct modelFile name
+      // console.log(renderized)
+
+      let controllerFile = path.join(controllerDir, `${modelCamelCase}.go`)
+      if (!fs.existsSync(controllerFile)) {
+        fs.writeFileSync(controllerFile, renderized, (err) => {
+          if (err) {
+            console.error('Error writing file:', err)
+          }
+        })
+      }
+    }
+  }
+}
+
 export {
   downloadFile,
   downloadFromDriveAndConvertToJson,
@@ -1047,4 +1313,5 @@ export {
   rename,
   create,
   update,
+  processRoutes,
 }

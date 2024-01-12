@@ -1,4 +1,4 @@
-import {downloadFromDriveAndConvertToJson, processModels, rename, create, update} from "../webapp"
+import {downloadFromDriveAndConvertToJson, processModels, rename, create, update, processRoutes} from "../webapp"
 import {to} from "await-to-js"
 
 module.exports = (toolbox) => {
@@ -15,6 +15,14 @@ module.exports = (toolbox) => {
             break;
         case "processModels":
             [err, care] = await to(processModels())
+            if(err){
+                return console.log(err)
+            }
+            if(!care && err)console.log(err)
+
+            break;
+        case "processRoutes":
+            [err, care] = await to(processRoutes(supplied))
             if(err){
                 return console.log(err)
             }

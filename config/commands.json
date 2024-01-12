@@ -108,9 +108,17 @@
         },
         "routes/r": {
             "description": "Create code for routes",
-            "__run": "createRoutesCode",
-            "optional": {
-                "download/d": "Download before processing"
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "processRoutes"
+                }
+            },
+            "required": {
+                "download/d": {
+                    "type": "number",
+                    "description": "Development environment"
+                }
             }
         },
         "controllers/c": {

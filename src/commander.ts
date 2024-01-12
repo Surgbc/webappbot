@@ -224,7 +224,12 @@ const validateOptions = (supplied, required) => {
   let optionalOptions = required.optional || {}
   let suppliedKeys = Object.keys(supplied).map((key) => key.replace(/^\-+/, ''))
   Object.keys(requiredOptions).map((key) => {
-    if (!suppliedKeys.includes(key)) throw `Required arg ${key} missing.`
+    let keys = key.split("/")
+    let keyFound = false
+    keys.map(innerKey=>{
+      if (!suppliedKeys.includes(innerKey)) keyFound = true
+    })
+    if(!keyFound)  throw `Required arg ${key} missing.`
   })
   Object.keys(optionalOptions).map((key) => {
     requiredOptions[key] = optionalOptions[key]
@@ -235,15 +240,23 @@ const validateOptions = (supplied, required) => {
     let key_ = key.replace(/^\-+/, '')
     supplieds[key_] = supplied[key]
   })
-
+  let tmp = {}
+  for (let i in requiredOptions){
+    let ii = i.split("/")
+    ii.map(key=>{
+      tmp[key] =  requiredOptions[i]
+    })
+  }
   for (const key in supplieds) {
-    const option = requiredOptions[key]
+    // const option = requiredOptions[key]
+    const option = tmp[key]
     if (option === undefined) {
       throw `Unexpected arg ${key}`
     }
 
     const inputValue = supplieds[key]
     if (typeof option === 'object') {
+      console.log(option)
       switch (option.type) {
         case 'text':
           if (option.length) {
