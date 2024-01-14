@@ -394,6 +394,9 @@ const createRoutesDirectories = () => {
  */
 const createControllersDirectories = () => {
   let modelsData = readModelsData('routesFromModels.json')
+  let globalTemplateContentPersistent = readTemplateData(
+    'globalPersistentController'
+  )
   for (const package_ of Object.keys(modelsData)) {
     let modelDir = path.join(
       process.cwd(),
@@ -401,13 +404,38 @@ const createControllersDirectories = () => {
       'controllers',
       package_
     )
+    let persistentControllerDir = path.join(
+      process.cwd(),
+      'local-src',
+      'persistent-controllers',
+      package_
+    )
     if (!fs.existsSync(modelDir)) {
       fs.mkdirSync(modelDir, { recursive: true })
+    } else {
+      fs.removeSync(modelDir)
+      fs.mkdirSync(modelDir, { recursive: true })
     }
-    // else { // do not interfere with existing controllers
-    //   fs.removeSync(modelDir)
-    //   fs.mkdirSync(modelDir, { recursive: true })
-    // }
+    if (!fs.existsSync(persistentControllerDir)) {
+      fs.mkdirSync(persistentControllerDir, { recursive: true })
+    } // do not interefere with existing persistent controllers
+
+    // global file for persistent controllers
+    let packageCamelCase = _.camelCase(package_)
+    let packageTitleCase =
+      packageCamelCase[0].toUpperCase() +
+      packageCamelCase.slice(-(packageCamelCase.length - 1))
+    let renderized = ejs.render(globalTemplateContentPersistent, {
+      package: packageCamelCase,
+      packageTitleCase,
+    })
+    
+    let controllerFile = path.join(persistentControllerDir, `global.go`)
+      fs.writeFileSync(controllerFile, renderized, (err) => {
+        if (err) {
+          console.error('Error writing file:', err)
+        }
+      })
   }
 }
 /**
@@ -1156,9 +1184,17 @@ const createPackageVariables = (modelsData, package_) => {
     'controllers',
     package_
   )
+  let persistentControllerDir = path.join(
+    process.cwd(),
+    'local-src',
+    'persistent-controllers',
+    package_
+  )
   let routesDir = path.join(process.cwd(), 'local-src', 'routes', package_)
   let packageData = modelsData[package_]
-  let packageTitleCase = packageCamelCase[0].toUpperCase() + packageCamelCase.slice(-(packageCamelCase.length-1))
+  let packageTitleCase =
+    packageCamelCase[0].toUpperCase() +
+    packageCamelCase.slice(-(packageCamelCase.length - 1))
   // packageTitleCase[0] = packageTitleCase[0].toUpperCase()
   return {
     packageCamelCase,
@@ -1167,6 +1203,7 @@ const createPackageVariables = (modelsData, package_) => {
     routesDir,
     packageData,
     packageTitleCase,
+    persistentControllerDir,
   }
 }
 
@@ -1189,11 +1226,10 @@ const createPackageDataVariables = (model, packageData) => {
   return { imports, modelCamelCase, fields, primary }
 }
 
-const processRoutes = async (supplied:any = false) => {
-  console.log(supplied)
-  // let isDev = 
-  let isDevEnv:any = (supplied["-d"] || supplied["d"]) 
-  isDevEnv = isDevEnv
+const processRoutes = async (supplied: any = false) => {
+  let { d, debug } = supplied
+  debug = debug || d
+  let isDevEnv: boolean = debug
   let modelsData = readModelsData('routesFromModels.json')
   createControllersDirectories()
   let templateContent = readTemplateData('controllers')
@@ -1207,6 +1243,7 @@ const processRoutes = async (supplied:any = false) => {
       packageCamelCase,
       packageTitleCase,
       controllerDir /*, routesDir*/,
+      persistentControllerDir,
       packageData,
     } = createPackageVariables(modelsData, package_)
 
@@ -1216,33 +1253,50 @@ const processRoutes = async (supplied:any = false) => {
       let routeFile = path.join(routesDir, `${packageCamelCase}.go`)
       let models = {}
       let routeGroupsStrs = []
+      let routesFuncTemplate = readTemplateData('routeFunc')
       for (const model of Object.keys(packageData)) {
-        let {  modelCamelCase /*, fields*/ } = createPackageDataVariables(
+        let { modelCamelCase /*, fields*/ } = createPackageDataVariables(
           model,
           packageData
         )
         let actions = Object.keys(packageData[model])
         models[model] = Object.keys(packageData[model])
         let codeActionNamesMaps = {
-          "create": "Post",
-          "read": "Get",
-          "update": "Patch",
-          "delete": "Delete"
+          create: 'Post',
+          read: 'Get',
+          update: 'Patch',
+          delete: 'Delete',
         }
-        actions.map(action=>{
-          let actionTitleCase = action[0].toUpperCase() + action.slice(-(action.length-1))
-          routeGroupsStrs.push(`${packageCamelCase}.${codeActionNamesMaps[action]}("/${modelCamelCase}", ${packageCamelCase}Controller.${actionTitleCase}${model})`)
+        actions.map((action) => {
+          let actionTitleCase =
+            action[0].toUpperCase() + action.slice(-(action.length - 1))
+          let funcName = `${actionTitleCase}${model}`
+          let funcNameStr = `${packageCamelCase}Controller.${actionTitleCase}${model}`
+          // let funcNamePersistent = `${packageCamelCase}ControllerPersistent.${actionTitleCase}${model}`
+          let actionStr = `${packageCamelCase}.${codeActionNamesMaps[action]}`
+          let renderized = ejs.render(routesFuncTemplate, {
+            package: packageCamelCase,
+            modelCamelCase,
+            packageTitleCase,
+            routeGroupsStr,
+            modulePath,
+            funcName,
+            funcNameStr,
+            // funcNamePersistent,
+            action: actionStr,
+          })
+          routeGroupsStrs.push(renderized)
         })
       }
 
-      let routeGroupsStr = routeGroupsStrs.join("\n\t")
+      let routeGroupsStr = routeGroupsStrs.join('\n')
 
       console.log(models)
       let renderized = ejs.render(routesTemplate, {
         package: packageCamelCase,
         packageTitleCase,
         routeGroupsStr,
-        modulePath
+        modulePath,
       })
       fs.writeFileSync(routeFile, renderized, (err) => {
         if (err) {
@@ -1251,6 +1305,37 @@ const processRoutes = async (supplied:any = false) => {
       })
     }
 
+    // persistent controllers
+    let templateContentPersistent = readTemplateData(
+      'emptyPersistentController'
+    )
+    for (const model of Object.keys(packageData)) {
+      let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
+        model,
+        packageData
+      )
+      let renderized = ejs.render(templateContentPersistent, {
+        package: packageCamelCase,
+        modelCamelCase,
+        modelTitleCase: model,
+        imports,
+        packageTitleCase,
+        isDevEnv,
+      })
+
+      let controllerFile = path.join(
+        persistentControllerDir,
+        `${modelCamelCase}.go`
+      )
+      if (!fs.existsSync(controllerFile)) {
+        // do not overwrite
+        fs.writeFileSync(controllerFile, renderized, (err) => {
+          if (err) {
+            console.error('Error writing file:', err)
+          }
+        })
+      }
+    }
     for (const model of Object.keys(packageData)) {
       let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
         model,
@@ -1289,18 +1374,19 @@ const processRoutes = async (supplied:any = false) => {
         // Primary: primary,
         imports,
         packageTitleCase,
+        isDevEnv,
       })
       // correct modelFile name
       // console.log(renderized)
 
       let controllerFile = path.join(controllerDir, `${modelCamelCase}.go`)
-      if (!fs.existsSync(controllerFile)) {
-        fs.writeFileSync(controllerFile, renderized, (err) => {
-          if (err) {
-            console.error('Error writing file:', err)
-          }
-        })
-      }
+      // if (!fs.existsSync(controllerFile)) { // overwrite afterall
+      fs.writeFileSync(controllerFile, renderized, (err) => {
+        if (err) {
+          console.error('Error writing file:', err)
+        }
+      })
+      // }
     }
   }
 }

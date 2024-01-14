@@ -115,9 +115,9 @@
                 }
             },
             "required": {
-                "download/d": {
-                    "type": "number",
-                    "description": "Development environment"
+                "debug/d": {
+                    "type": "bool",
+                    "description": "Enable debug output in controllers"
                 }
             }
         },
