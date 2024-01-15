@@ -101,9 +101,6 @@
                 "args": {
                     "action": "processModels"
                 }
-            },
-            "optional": {
-                "download/d": "Download before processing"
             }
         },
         "routes/r": {
@@ -114,7 +111,22 @@
                     "action": "processRoutes"
                 }
             },
-            "required": {
+            "optional": {
+                "debug/d": {
+                    "type": "bool",
+                    "description": "Enable debug output in controllers"
+                }
+            }
+        },
+        "all/a": {
+            "description": "Process both models and routes",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "processAll"
+                }
+            },
+            "optional": {
                 "debug/d": {
                     "type": "bool",
                     "description": "Enable debug output in controllers"
@@ -133,6 +145,27 @@
             "__run": "createValidatorsCode",
             "optional": {
                 "download/d": "Download before processing"
+            }
+        }
+    },
+    "swagger/s": {
+        "description": "Generate api documentation",
+        "delims/m": {
+            "description": "Remove delimiter (bugs in generated docs.go)",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "swagger-delimiters"
+                }
+            }
+        },
+        "init/i": {
+            "description": "Run swag init",
+            "__run": {
+                "func": "generic",
+                "args": {
+                    "action": "swagger-init"
+                }
             }
         }
     }

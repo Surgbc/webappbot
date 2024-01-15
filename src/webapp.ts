@@ -251,7 +251,6 @@ const processRoutesDataFromModelsData = (routesData) => {
         if (Object.keys(modelData[field]).length === 0) delete modelData[field]
       }
       ;['create', 'read', 'update', 'delete'].map((action) => {
-        console.log(action)
         reorganized[packageName][modelName][action] = Object.keys(
           modelData
         ).filter((field) => {
@@ -298,13 +297,12 @@ const xlsxToJSON = async () => {
     fillPartials(modelsData, partials)
     replaceWebAppTypesWithModelType(modelsData)
     // api
-    segregateAPISections(modelsData)
-    let routesData = Object.assign({}, modelsData)
+    let routesData = JSON.parse(JSON.stringify(modelsData))
+    segregateAPISections(routesData)
     processRoutesDataFromModelsData(routesData)
 
     const jsonString = JSON.stringify(modelsData, null, 2) // null and 2 for pretty formatting
     const jsonStringRoutes = JSON.stringify(routesData, null, 2) // null and 2 for pretty formatting
-    console.log(routesData)
 
     // Write JSON string to a file
     try {
@@ -348,7 +346,7 @@ const readModelsData = (jsonFilePath = '') => {
     jsonFilePath == '' ? 'models.json' : jsonFilePath
   )
   const modelsData = require(jsonPath)
-  return modelsData
+  return JSON.parse(JSON.stringify(modelsData))
 }
 
 /**
@@ -374,15 +372,32 @@ const createModelsDirectories = () => {
 const createRoutesDirectories = () => {
   let routesDir = path.join(process.cwd(), 'local-src', 'systemRoutes')
   if (!fs.existsSync(routesDir)) {
-    // fs.mkdirSync(modelDir)
     fs.mkdirSync(routesDir, { recursive: true })
   } else {
     fs.removeSync(routesDir)
-    // fs.mkdirSync(modelDir)
     fs.mkdirSync(routesDir, { recursive: true })
   }
   let routeGlobalsTemplateContent = readTemplateData('routeGlobals')
   let routeGlobalsFile = path.join(routesDir, `globals_.go`)
+  fs.writeFileSync(routeGlobalsFile, routeGlobalsTemplateContent, (err) => {
+    if (err) {
+      console.error('Error writing file:', err)
+    }
+  })
+}
+/**
+ * Creates directories for z_paths
+ */
+const createZPathDirectories = () => {
+  let routesDir = path.join(process.cwd(), 'local-src', 'z_paths')
+  if (!fs.existsSync(routesDir)) {
+    fs.mkdirSync(routesDir, { recursive: true })
+  } else {
+    fs.removeSync(routesDir)
+    fs.mkdirSync(routesDir, { recursive: true })
+  }
+  let routeGlobalsTemplateContent = readTemplateData('zPathGlobals')
+  let routeGlobalsFile = path.join(routesDir, `globals.go`)
   fs.writeFileSync(routeGlobalsFile, routeGlobalsTemplateContent, (err) => {
     if (err) {
       console.error('Error writing file:', err)
@@ -429,13 +444,13 @@ const createControllersDirectories = () => {
       package: packageCamelCase,
       packageTitleCase,
     })
-    
+
     let controllerFile = path.join(persistentControllerDir, `global.go`)
-      fs.writeFileSync(controllerFile, renderized, (err) => {
-        if (err) {
-          console.error('Error writing file:', err)
-        }
-      })
+    fs.writeFileSync(controllerFile, renderized, (err) => {
+      if (err) {
+        console.error('Error writing file:', err)
+      }
+    })
   }
 }
 /**
@@ -484,246 +499,11 @@ const processModels = async () => {
     let modelsData = readModelsData()
     let modulePath = readModulePath()
     for (const package_ of Object.keys(modelsData)) {
-      let modelStr = `${package_}Models "${modulePath}/src/models/${package_.toLowerCase()}"`
+      let modelStr = `${package_}Models "${modulePath}/local-src/models/${package_.toLowerCase()}"`
       if (!modelImportStrs.includes(modelStr)) modelImportStrs.push(modelStr)
     }
     modelImportStrs.unshift(`"${modulePath}/config"`)
     return modelImportStrs
-  }
-
-  /**
-   * Creates variables based on the provided field object.
-   *
-   * @param {Object} field - The field object containing type information.
-   * @returns {Object} An object containing variables derived from the provided field object:
-   *                    - 'field': The original field object.
-   *                    - 'type': The inferred or transformed type based on 'typeFromTypes' or 'Type' in the field object.
-   *                    - 'typeFromTypes': The retrieved 'typeFromTypes' value from the field object.
-   */
-  const createFieldVariables = (field) => {
-    //type
-    let { typeFromTypes, Type } = field
-    let type = Type
-
-    if (typeFromTypes) {
-      if (typeof typeFromTypes === 'object') {
-        type = typeFromTypes.type
-        if (typeFromTypes.length) {
-          field.length = typeFromTypes.length
-        }
-      } else {
-        type = typeFromTypes
-      }
-    }
-    return { field, type, typeFromTypes }
-  }
-
-  /**
-   * Adds import statements to an array based on the provided type and import mapping.
-   *
-   * @param {string} type - The type for which an import statement needs to be added.
-   * @param {Array} imports - An array containing existing import statements.
-   */
-  const addToImports = (type, imports, importStrType = '') => {
-    let importStringsMaps = {
-      'uuid.UUID': `uuid "github.com/google/uuid"`,
-      'time.Time': `"time"`,
-    }
-    switch (importStrType) {
-      case '':
-        if (!Object.keys(importStringsMaps).includes(type)) return
-        if (!imports.includes(importStringsMaps[type]))
-          imports.push(importStringsMaps[type])
-        break
-      case 'local':
-        if (!imports.includes(type)) imports.push(type)
-    }
-  }
-
-  /**
-   * Sets the primary key field and manages necessary imports based on field properties.
-   *
-   * @param {string} primary - The current primary key field.
-   * @param {string} fieldKey - The key representing the field.
-   * @param {Object} field - The field object containing properties, including 'Primary'.
-   * @param {Array} imports - An array containing existing import statements.
-   */
-  const setPrimarykey = (primary, fieldKey, field, imports) => {
-    if (field.Primary) {
-      primary = fieldKey
-    } else {
-      addToImports('uuid.UUID', imports) // default pk type is UUID
-    }
-  }
-
-  /**
-   * Sets the default value for a field based on its properties.
-   *
-   * @param {Object} field - The field object
-   */
-  const setDefaultValue = (field) => {
-    let { DefaultValue, typeFromTypes } = field
-    if (DefaultValue !== undefined) {
-      switch (typeFromTypes) {
-        case 'string':
-          DefaultValue = `'${DefaultValue}'`
-          break
-        case 'bool':
-          break
-        default:
-      }
-      field.DefaultValue = DefaultValue
-    }
-  }
-
-  /**
-   * Sets the length property for a field based on its properties.
-   *
-   * @param {Object} field - The field object
-   */
-  const setFieldLength = (field) => {
-    let { length, MaximumLength } = field
-    if (MaximumLength !== undefined) {
-      field.Length = MaximumLength
-    }
-    if (length !== undefined) {
-      field.Length = length
-    }
-  }
-
-  /**
-   * Handles setting properties related to 'time.Time' type for a field object.
-   *
-   * @param {Object} field - The field object
-   */
-  const setTimeType = (field) => {
-    if (field.typeFromTypes === 'time.Time') {
-      let { NotNull, AutoCreate } = field
-      if (!NotNull) {
-        field.type = '*time.Time'
-      }
-      if (AutoCreate) {
-        field.misc = 'autoCreateTime'
-      }
-    }
-  }
-
-  /**
-   * Handles setting properties related to 'int' type for a field object.
-   *
-   * @param {Object} field - The field object
-   */
-  const setIntType = (field) => {
-    if (field.typeFromTypes === 'int') {
-      let { Minimum, Maximum } = field
-      if (Minimum !== undefined) {
-        if (Maximum === undefined) Maximum = 18446744073709551615
-      }
-      if (Maximum !== undefined) if (Minimum === undefined) Minimum = -1
-      if (Maximum === undefined && Minimum === undefined) field.type = 'int64'
-      else {
-        if (Minimum >= 0 && Maximum <= 4294967295) {
-          field.type = 'uint32'
-        } else if (Minimum >= 0 && Maximum > 4294967295) {
-          field.type = 'uint64'
-        } else if (Minimum < 0 && Maximum <= 2147483647) {
-          field.type = 'int32'
-        } else if (Minimum < 0 && Maximum > 2147483647) {
-          field.type = 'int64'
-        }
-      }
-    }
-  }
-
-  /**
-   * Handles setting properties related to 'float' type for a field object.
-   *
-   * @param {Object} field - The field object
-   */
-  const setFloatType = (field) => {
-    if (field.typeFromTypes === 'float') {
-      let { Maximum } = field
-      if (Maximum === undefined) field.type = 'float64'
-      else {
-        if (Math.abs(Maximum) <= 3.402823466e385) {
-          field.type = 'float32'
-        } else if (Math.abs(Maximum) <= 1.7976931348623157e308) {
-          field.type = 'float64'
-        }
-      }
-    }
-  }
-
-  /**
-   * Sets the default field type and length based on the 'typeFromTypes' property in the field object.
-   *
-   * @param {Object} field - The field object.
-   */
-  const setDefaultFieldType = (field) => {
-    let { typeFromTypes } = field
-    if (typeof typeFromTypes === 'object') {
-      let { type, length } = typeFromTypes
-      if (type) field.type = type
-      if (length) field.Length = length
-    } else field.type = typeFromTypes
-  }
-
-  /**
-   * Generates the local model package import string based on the provided package name and 'go.mod' file data.
-   *
-   * @param {string} packageName - The name of the package for which the import string is generated.
-   * @returns {string} The import string for the specified package, formatted as per the 'go.mod' file and package name.
-   */
-  const getLocalModelPackageStr = (packageName) => {
-    let modulePath = readModulePath()
-    return `${packageName} "${modulePath}/src/models/${packageName.toLowerCase()}"`
-  }
-
-  /**
-   * Creates relationships in the 'fields' object based on the specified 'fieldKey'.
-   *
-   * @param {Object} fields - The object containing fields.
-   * @param {string} fieldKey - The key representing the field.
-   */
-  const createRelationShips = (fields, fieldKey, packageCamelCase, imports) => {
-    let field = fields[fieldKey]
-    if (fieldKey.match(/\./)) {
-      let fieldNameParts = fieldKey.split('.')
-      let relatedModelPackage = fieldNameParts[0]
-      let relatedModel = fieldNameParts[1]
-      let relatedFieldName = fieldNameParts[1] + 'Id'
-      let relatedModelType = relatedModel
-      if (relatedModelPackage !== packageCamelCase) {
-        relatedModelType = fieldKey
-        let importStr = getLocalModelPackageStr(relatedModelPackage)
-        addToImports(importStr, imports, 'local')
-      }
-      // delete fields[fieldKey]
-      fields[relatedModel] = {
-        typeFromTypes: relatedModelType,
-        misc: `constraint:OnDelete:CASCADE;`,
-      }
-      fields[relatedFieldName] = field
-      fields[relatedFieldName].typeFromTypes = 'uuid.UUID'
-    }
-  }
-
-  /**
-   * Updates the 'fields' object by either adding or deleting a field based on the 'fieldKey'.
-   * If the 'fieldKey' does not contain a dot ('.'), the 'fields' object is updated with the provided 'field'.
-   * If the 'fieldKey' contains a dot ('.'), it assigns the 'parentModel' and removes the corresponding field from 'fields'.
-   *
-   * @param {Object} fields - The object containing fields.
-   * @param {Object} field - The field object to be added.
-   * @param {string} fieldKey - The key representing the field.
-   * @param {string} parentModel - The key of the parent model.
-   */
-  const updateField = (fields, field, fieldKey, parentModel) => {
-    if (!fieldKey.match(/\./)) fields[fieldKey] = field
-    else {
-      parentModel.value = fieldKey
-      delete fields[fieldKey]
-    }
   }
 
   /**
@@ -733,145 +513,148 @@ const processModels = async () => {
    * @param {Object} allModelsWithHierarchyData - Object containing model hierarchy data.
    * @returns {string[]} The sorted array of models based on their hierarchy and dependencies.
    */
-  const sortModelsByHierarchy = (allModelStrs, allModelsWithHierarchyData) => {
-    const sortedModels = []
+  // const sortModelsByHierarchy = (allModelStrs, allModelsWithHierarchyData) => {
+  //   const sortedModels = []
 
-    allModelStrs.map((model) => {
-      // only parents
-      let isChild = false
-      Object.values(allModelsWithHierarchyData).map((item: any) => {
-        if (item.includes(model.replace(/Models\./, '.'))) isChild = true
-      })
-      if (!isChild) sortedModels.push(model)
-    })
+  //   allModelStrs.map((model) => {
+  //     // only parents
+  //     let isChild = false
+  //     Object.values(allModelsWithHierarchyData).map((item: any) => {
+  //       if (item.includes(model.replace(/Models\./, '.'))) isChild = true
+  //     })
+  //     if (!isChild) sortedModels.push(model)
+  //   })
 
-    for (let i = 0; i <= 5; i++) {
-      // children in only one group if parent already exists
-      allModelStrs.map((model) => {
-        // only parents
-        let numParents = 0
-        let parent = ''
-        Object.values(allModelsWithHierarchyData).map((item: any, index) => {
-          if (item.includes(model.replace(/Models\./, '.'))) {
-            numParents++
-            parent = Object.keys(allModelsWithHierarchyData)[index]
+  //   for (let i = 0; i <= 5; i++) {
+  //     // children in only one group if parent already exists
+  //     allModelStrs.map((model) => {
+  //       // only parents
+  //       let numParents = 0
+  //       let parent = ''
+  //       Object.values(allModelsWithHierarchyData).map((item: any, index) => {
+  //         if (item.includes(model.replace(/Models\./, '.'))) {
+  //           numParents++
+  //           parent = Object.keys(allModelsWithHierarchyData)[index]
+  //         }
+  //       })
+  //       if (numParents == 1) {
+  //         if (sortedModels.includes(parent.replace(/\./, `Models.`))) {
+  //           if (!sortedModels.includes(model)) sortedModels.push(model)
+  //         }
+  //       }
+  //     })
+  //   }
+  //   // all the rest of the children. Fix on case by case basis upon failure
+  //   allModelStrs.map((model) => {
+  //     if (!sortedModels.includes(model)) sortedModels.push(model)
+  //   })
+
+  //   return sortedModels
+  // }
+  return new Promise((resolve, reject) => {
+    let templateContent = readTemplateData('models')
+    let modelsData = readModelsData()
+    createModelsDirectories()
+    let allModelStrs = []
+    let allModelsWithHierarchyData = {}
+    for (const package_ of Object.keys(modelsData)) {
+      let { packageCamelCase, modelDir, packageData } = createPackageVariables(
+        modelsData,
+        package_
+      )
+      for (const model of Object.keys(packageData)) {
+        let { imports, modelCamelCase, fields, primary } =
+          createPackageDataVariables(model, packageData)
+        // let parentModel: any = false
+        let parentModel: any = { value: false }
+        for (let fieldKey in fields) {
+          let { field /*type /*, typeFromTypes */ } = createFieldVariables(
+            fields[fieldKey]
+          )
+          createRelationShips(fields, fieldKey, packageCamelCase, imports)
+          updateField(fields, field, fieldKey, parentModel)
+        }
+        // parentModel.value = false
+        for (let fieldKey in fields) {
+          let { field, type /*, typeFromTypes */ } = createFieldVariables(
+            fields[fieldKey]
+          )
+          addToImports(type, imports)
+          setDefaultFieldType(field)
+          setPrimarykey(primary, fieldKey, field, imports)
+          setDefaultValue(field)
+          setFieldLength(field)
+          setTimeType(field)
+          setIntType(field)
+          setFloatType(field)
+          updateField(fields, field, fieldKey, parentModel)
+        }
+        if (parentModel.value) {
+          let model_ = `${packageCamelCase}.${model}`
+          if (allModelsWithHierarchyData[parentModel.value] === undefined) {
+            allModelsWithHierarchyData[parentModel.value] = [model_]
+          } else {
+            allModelsWithHierarchyData[parentModel.value].push(model_)
+          }
+        }
+
+        // console.log({ packageCamelCase, model , parentModel:parentModel})
+        // console.log({primary})
+        allModelStrs.push(`${packageCamelCase}Models.${model}`)
+        let renderized = ejs.render(templateContent, {
+          package: packageCamelCase,
+          modelCamelCase,
+          modelTitleCase: model,
+          fields,
+          Primary: primary.value,
+          imports,
+        })
+        // correct modelFile name
+        // console.log(renderized)
+
+        let modelFile = path.join(modelDir, `${modelCamelCase}.go`)
+        fs.writeFileSync(modelFile, renderized, (err) => {
+          if (err) {
+            console.error('Error writing file:', err)
+          } else {
+            console.log('JSON data has been saved to', modelFile)
           }
         })
-        if (numParents == 1) {
-          if (sortedModels.includes(parent.replace(/\./, `Models.`))) {
-            if (!sortedModels.includes(model)) sortedModels.push(model)
-          }
-        }
-      })
+      }
     }
-    // all the rest of the children. Fix on case by case basis upon failure
-    allModelStrs.map((model) => {
-      if (!sortedModels.includes(model)) sortedModels.push(model)
-    })
 
-    return sortedModels
-  }
-
-  let templateContent = readTemplateData('models')
-  let modelsData = readModelsData()
-  createModelsDirectories()
-  let allModelStrs = []
-  let allModelsWithHierarchyData = {}
-  for (const package_ of Object.keys(modelsData)) {
-    let { packageCamelCase, modelDir, packageData } = createPackageVariables(
-      modelsData,
-      package_
-    )
-    for (const model of Object.keys(packageData)) {
-      let { imports, modelCamelCase, fields, primary } =
-        createPackageDataVariables(model, packageData)
-      // let parentModel: any = false
-      let parentModel: any = { value: false }
-      for (let fieldKey in fields) {
-        let { field /*type /*, typeFromTypes */ } = createFieldVariables(
-          fields[fieldKey]
-        )
-        createRelationShips(fields, fieldKey, packageCamelCase, imports)
-        updateField(fields, field, fieldKey, parentModel)
-      }
-      // parentModel.value = false
-      for (let fieldKey in fields) {
-        let { field, type /*, typeFromTypes */ } = createFieldVariables(
-          fields[fieldKey]
-        )
-        addToImports(type, imports)
-        setDefaultFieldType(field)
-        setPrimarykey(primary, fieldKey, field, imports)
-        setDefaultValue(field)
-        setFieldLength(field)
-        setTimeType(field)
-        setIntType(field)
-        setFloatType(field)
-        updateField(fields, field, fieldKey, parentModel)
-      }
-      if (parentModel.value) {
-        let model_ = `${packageCamelCase}.${model}`
-        if (allModelsWithHierarchyData[parentModel.value] === undefined) {
-          allModelsWithHierarchyData[parentModel.value] = [model_]
-        } else {
-          allModelsWithHierarchyData[parentModel.value].push(model_)
-        }
-      }
-
-      // console.log({ packageCamelCase, model , parentModel:parentModel})
-      allModelStrs.push(`${packageCamelCase}Models.${model}`)
+    // db.go
+    {
+      allModelStrs = allModelStrs.reverse()
+      // console.log(allModelStrs)
+      // const sortedModels = sortModelsByHierarchy(
+      //   allModelStrs,
+      //   allModelsWithHierarchyData
+      // )
+      // console.log({ sortedModels })
+      // console.log({ allModelsWithHierarchyData, allModelStrs })
+      let modelPackages = listModelPackages()
+      templateContent = readTemplateData('db.go')
       let renderized = ejs.render(templateContent, {
-        package: packageCamelCase,
-        modelCamelCase,
-        modelTitleCase: model,
-        fields,
-        Primary: primary,
-        imports,
+        imports: modelPackages,
+        allModelStrs,
       })
-      // correct modelFile name
-      // console.log(renderized)
-
-      let modelFile = path.join(modelDir, `${modelCamelCase}.go`)
-      fs.writeFileSync(modelFile, renderized, (err) => {
+      const directory = path.join(process.cwd(), 'local-src', 'db')
+      if (!fs.existsSync(directory)) {
+        fs.mkdirSync(directory)
+      }
+      let dbFile = path.join(directory, `db.go`)
+      fs.writeFileSync(dbFile, renderized, (err) => {
         if (err) {
           console.error('Error writing file:', err)
         } else {
-          console.log('JSON data has been saved to', modelFile)
+          console.log('JSON data has been saved to', dbFile)
         }
       })
     }
-  }
-
-  // db.go
-  {
-    allModelStrs = allModelStrs.reverse()
-    console.log(allModelStrs)
-    const sortedModels = sortModelsByHierarchy(
-      allModelStrs,
-      allModelsWithHierarchyData
-    )
-    console.log({ sortedModels })
-    console.log({ allModelsWithHierarchyData, allModelStrs })
-    let modelPackages = listModelPackages()
-    templateContent = readTemplateData('db.go')
-    let renderized = ejs.render(templateContent, {
-      imports: modelPackages,
-      allModelStrs,
-    })
-    const directory = path.join(process.cwd(), 'local-src', 'db')
-    if (!fs.existsSync(directory)) {
-      fs.mkdirSync(directory)
-    }
-    let dbFile = path.join(directory, `db.go`)
-    fs.writeFileSync(dbFile, renderized, (err) => {
-      if (err) {
-        console.error('Error writing file:', err)
-      } else {
-        console.log('JSON data has been saved to', dbFile)
-      }
-    })
-  }
-  // console.log({ types })
+    // console.log({ types })
+    resolve(true)
+  })
 }
 
 /**
@@ -1222,8 +1005,364 @@ const createPackageDataVariables = (model, packageData) => {
   let imports = []
   let modelCamelCase = _.camelCase(model)
   let fields = packageData[model]
-  let primary: any = false
+  let primary: any = { value: false }
   return { imports, modelCamelCase, fields, primary }
+}
+
+const createPersistentControllers = (modelsData, package_) => {
+  let {
+    packageCamelCase,
+    packageTitleCase,
+    persistentControllerDir,
+    packageData,
+  } = createPackageVariables(modelsData, package_)
+  // persistent controllers
+  let templateContentPersistent = readTemplateData('emptyPersistentController')
+  for (const model of Object.keys(packageData)) {
+    let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
+      model,
+      packageData
+    )
+    let renderized = ejs.render(templateContentPersistent, {
+      package: packageCamelCase,
+      modelCamelCase,
+      modelTitleCase: model,
+      imports,
+      packageTitleCase,
+    })
+
+    let controllerFile = path.join(
+      persistentControllerDir,
+      `${modelCamelCase}.go`
+    )
+    if (!fs.existsSync(controllerFile)) {
+      // do not overwrite
+      fs.writeFileSync(controllerFile, renderized, (err) => {
+        if (err) {
+          console.error('Error writing file:', err)
+        }
+      })
+    }
+  }
+}
+
+const createRoutesFiles = (modelsData, package_) => {
+  {
+    let {
+      packageCamelCase,
+      packageTitleCase,
+      // persistentControllerDir,
+      packageData,
+    } = createPackageVariables(modelsData, package_)
+    let modulePath = readModulePath()
+    let routesDir = path.join(process.cwd(), 'local-src', 'systemRoutes')
+    let routesTemplate = readTemplateData('route')
+    let routeFile = path.join(routesDir, `${packageCamelCase}.go`)
+    let models = {}
+    let routeGroupsStrs = []
+    let routesFuncTemplate = readTemplateData('routeFunc')
+    for (const model of Object.keys(packageData)) {
+      let { modelCamelCase /*, fields*/ } = createPackageDataVariables(
+        model,
+        packageData
+      )
+      let actions = Object.keys(packageData[model])
+      models[model] = Object.keys(packageData[model])
+      let codeActionNamesMaps = {
+        create: 'Post',
+        read: 'Get',
+        update: 'Patch',
+        delete: 'Delete',
+      }
+      actions.map((action) => {
+        let actionTitleCase =
+          action[0].toUpperCase() + action.slice(-(action.length - 1))
+        let funcName = `${actionTitleCase}${model}`
+        let funcNameStr = `${packageCamelCase}Controller.${actionTitleCase}${model}`
+        // let funcNamePersistent = `${packageCamelCase}ControllerPersistent.${actionTitleCase}${model}`
+        let actionStr = `${packageCamelCase}.${codeActionNamesMaps[action]}`
+        let renderized = ejs.render(routesFuncTemplate, {
+          package: packageCamelCase,
+          modelCamelCase,
+          packageTitleCase,
+          routeGroupsStr,
+          modulePath,
+          funcName,
+          funcNameStr,
+          // funcNamePersistent,
+          action: actionStr,
+          subAction: codeActionNamesMaps[action],
+        })
+        routeGroupsStrs.push(renderized)
+      })
+    }
+
+    let routeGroupsStr = routeGroupsStrs.join('\n')
+
+    // console.log(models)
+    let renderized = ejs.render(routesTemplate, {
+      package: packageCamelCase,
+      packageTitleCase,
+      routeGroupsStr,
+      modulePath,
+    })
+    fs.writeFileSync(routeFile, renderized, (err) => {
+      if (err) {
+        console.error('Error writing file:', err)
+      }
+    })
+  }
+}
+
+/**
+ * Creates variables based on the provided field object.
+ *
+ * @param {Object} field - The field object containing type information.
+ * @returns {Object} An object containing variables derived from the provided field object:
+ *                    - 'field': The original field object.
+ *                    - 'type': The inferred or transformed type based on 'typeFromTypes' or 'Type' in the field object.
+ *                    - 'typeFromTypes': The retrieved 'typeFromTypes' value from the field object.
+ */
+const createFieldVariables = (field) => {
+  //type
+  let { typeFromTypes, Type } = field
+  let type = Type
+
+  if (typeFromTypes) {
+    if (typeof typeFromTypes === 'object') {
+      type = typeFromTypes.type
+      if (typeFromTypes.length) {
+        field.length = typeFromTypes.length
+      }
+    } else {
+      type = typeFromTypes
+    }
+  }
+  return { field, type, typeFromTypes }
+}
+
+/**
+ * Creates relationships in the 'fields' object based on the specified 'fieldKey'.
+ *
+ * @param {Object} fields - The object containing fields.
+ * @param {string} fieldKey - The key representing the field.
+ */
+const createRelationShips = (
+  fields,
+  fieldKey,
+  packageCamelCase,
+  imports,
+  apiStructs = false
+) => {
+  let field = fields[fieldKey]
+  if (fieldKey.match(/\./)) {
+    let fieldNameParts = fieldKey.split('.')
+    let relatedModelPackage = fieldNameParts[0]
+    let relatedModel = fieldNameParts[1]
+    let relatedFieldName = fieldNameParts[1] + 'Id'
+    let relatedModelType = relatedModel
+    if (relatedModelPackage !== packageCamelCase) {
+      relatedModelType = fieldKey
+      let importStr = getLocalModelPackageStr(relatedModelPackage)
+      if (!apiStructs) addToImports(importStr, imports, 'local')
+    }
+    // delete fields[fieldKey]
+    fields[relatedModel] = {
+      typeFromTypes: relatedModelType,
+      misc: `constraint:OnDelete:CASCADE;`,
+    }
+    fields[relatedFieldName] = field
+    fields[relatedFieldName].typeFromTypes = 'uuid.UUID'
+  }
+}
+
+/**
+ * Updates the 'fields' object by either adding or deleting a field based on the 'fieldKey'.
+ * If the 'fieldKey' does not contain a dot ('.'), the 'fields' object is updated with the provided 'field'.
+ * If the 'fieldKey' contains a dot ('.'), it assigns the 'parentModel' and removes the corresponding field from 'fields'.
+ *
+ * @param {Object} fields - The object containing fields.
+ * @param {Object} field - The field object to be added.
+ * @param {string} fieldKey - The key representing the field.
+ * @param {string} parentModel - The key of the parent model.
+ */
+const updateField = (
+  fields,
+  field,
+  fieldKey,
+  parentModel,
+  removeParentObj = false
+) => {
+  if (!fieldKey.match(/\./)) fields[fieldKey] = field
+  else {
+    parentModel.value = fieldKey
+    delete fields[fieldKey]
+    if (removeParentObj) {
+      let parentObjKey = fieldKey.split('.')[1]
+      delete fields[`${parentObjKey}`]
+    }
+  }
+}
+
+/**
+ * Generates the local model package import string based on the provided package name and 'go.mod' file data.
+ *
+ * @param {string} packageName - The name of the package for which the import string is generated.
+ * @returns {string} The import string for the specified package, formatted as per the 'go.mod' file and package name.
+ */
+const getLocalModelPackageStr = (packageName) => {
+  let modulePath = readModulePath()
+  return `${packageName} "${modulePath}/local-src/models/${packageName.toLowerCase()}"`
+}
+
+/**
+ * Adds import statements to an array based on the provided type and import mapping.
+ *
+ * @param {string} type - The type for which an import statement needs to be added.
+ * @param {Array} imports - An array containing existing import statements.
+ */
+const addToImports = (type, imports, importStrType = '') => {
+  let importStringsMaps = {
+    'uuid.UUID': `uuid "github.com/google/uuid"`,
+    'time.Time': `"time"`,
+  }
+  switch (importStrType) {
+    case '':
+      if (!Object.keys(importStringsMaps).includes(type)) return
+      if (!imports.includes(importStringsMaps[type]))
+        imports.push(importStringsMaps[type])
+      break
+    case 'local':
+      if (!imports.includes(type)) imports.push(type)
+  }
+}
+
+/**
+ * Sets the primary key field and manages necessary imports based on field properties.
+ *
+ * @param {string} primary - The current primary key field.
+ * @param {string} fieldKey - The key representing the field.
+ * @param {Object} field - The field object containing properties, including 'Primary'.
+ * @param {Array} imports - An array containing existing import statements.
+ */
+const setPrimarykey = (primary, fieldKey, field, imports) => {
+  if (field.Primary) {
+    primary.value = fieldKey
+  } else {
+    addToImports('uuid.UUID', imports) // default pk type is UUID
+  }
+}
+
+/**
+ * Sets the default value for a field based on its properties.
+ *
+ * @param {Object} field - The field object
+ */
+const setDefaultValue = (field) => {
+  let { DefaultValue, typeFromTypes } = field
+  if (DefaultValue !== undefined) {
+    switch (typeFromTypes) {
+      case 'string':
+        DefaultValue = `'${DefaultValue}'`
+        break
+      case 'bool':
+        break
+      default:
+    }
+    field.DefaultValue = DefaultValue
+  }
+}
+
+/**
+ * Sets the length property for a field based on its properties.
+ *
+ * @param {Object} field - The field object
+ */
+const setFieldLength = (field) => {
+  let { length, MaximumLength } = field
+  if (MaximumLength !== undefined) {
+    field.Length = MaximumLength
+  }
+  if (length !== undefined) {
+    field.Length = length
+  }
+}
+
+/**
+ * Handles setting properties related to 'time.Time' type for a field object.
+ *
+ * @param {Object} field - The field object
+ */
+const setTimeType = (field) => {
+  if (field.typeFromTypes === 'time.Time') {
+    let { NotNull, AutoCreate } = field
+    if (!NotNull) {
+      field.type = '*time.Time'
+    }
+    if (AutoCreate) {
+      field.misc = 'autoCreateTime'
+    }
+  }
+}
+
+/**
+ * Handles setting properties related to 'int' type for a field object.
+ *
+ * @param {Object} field - The field object
+ */
+const setIntType = (field) => {
+  if (field.typeFromTypes === 'int') {
+    let { Minimum, Maximum } = field
+    if (Minimum !== undefined) {
+      if (Maximum === undefined) Maximum = 18446744073709551615
+    }
+    if (Maximum !== undefined) if (Minimum === undefined) Minimum = -1
+    if (Maximum === undefined && Minimum === undefined) field.type = 'int64'
+    else {
+      if (Minimum >= 0 && Maximum <= 4294967295) {
+        field.type = 'uint32'
+      } else if (Minimum >= 0 && Maximum > 4294967295) {
+        field.type = 'uint64'
+      } else if (Minimum < 0 && Maximum <= 2147483647) {
+        field.type = 'int32'
+      } else if (Minimum < 0 && Maximum > 2147483647) {
+        field.type = 'int64'
+      }
+    }
+  }
+}
+
+/**
+ * Handles setting properties related to 'float' type for a field object.
+ *
+ * @param {Object} field - The field object
+ */
+const setFloatType = (field) => {
+  if (field.typeFromTypes === 'float') {
+    let { Maximum } = field
+    if (Maximum === undefined) field.type = 'float64'
+    else {
+      if (Math.abs(Maximum) <= 3.402823466e385) {
+        field.type = 'float32'
+      } else if (Math.abs(Maximum) <= 1.7976931348623157e308) {
+        field.type = 'float64'
+      }
+    }
+  }
+}
+
+/**
+ * Sets the default field type and length based on the 'typeFromTypes' property in the field object.
+ *
+ * @param {Object} field - The field object.
+ */
+const setDefaultFieldType = (field) => {
+  let { typeFromTypes } = field
+  if (typeof typeFromTypes === 'object') {
+    let { type, length } = typeFromTypes
+    if (type) field.type = type
+    if (length) field.Length = length
+  } else field.type = typeFromTypes
 }
 
 const processRoutes = async (supplied: any = false) => {
@@ -1232,140 +1371,83 @@ const processRoutes = async (supplied: any = false) => {
   let isDevEnv: boolean = debug
   let modelsData = readModelsData('routesFromModels.json')
   createControllersDirectories()
-  let templateContent = readTemplateData('controllers')
-  let modulePath = readModulePath()
+
+  // let modulePath = readModulePath()
   {
     // routes setup
     createRoutesDirectories()
+    createZPathDirectories()
   }
+  let actualModelsData = readModelsData()
   for (const package_ of Object.keys(modelsData)) {
     let {
       packageCamelCase,
       packageTitleCase,
       controllerDir /*, routesDir*/,
-      persistentControllerDir,
+      // persistentControllerDir,
       packageData,
     } = createPackageVariables(modelsData, package_)
 
-    {
-      let routesDir = path.join(process.cwd(), 'local-src', 'systemRoutes')
-      let routesTemplate = readTemplateData('route')
-      let routeFile = path.join(routesDir, `${packageCamelCase}.go`)
-      let models = {}
-      let routeGroupsStrs = []
-      let routesFuncTemplate = readTemplateData('routeFunc')
-      for (const model of Object.keys(packageData)) {
-        let { modelCamelCase /*, fields*/ } = createPackageDataVariables(
-          model,
-          packageData
-        )
-        let actions = Object.keys(packageData[model])
-        models[model] = Object.keys(packageData[model])
-        let codeActionNamesMaps = {
-          create: 'Post',
-          read: 'Get',
-          update: 'Patch',
-          delete: 'Delete',
-        }
-        actions.map((action) => {
-          let actionTitleCase =
-            action[0].toUpperCase() + action.slice(-(action.length - 1))
-          let funcName = `${actionTitleCase}${model}`
-          let funcNameStr = `${packageCamelCase}Controller.${actionTitleCase}${model}`
-          // let funcNamePersistent = `${packageCamelCase}ControllerPersistent.${actionTitleCase}${model}`
-          let actionStr = `${packageCamelCase}.${codeActionNamesMaps[action]}`
-          let renderized = ejs.render(routesFuncTemplate, {
-            package: packageCamelCase,
-            modelCamelCase,
-            packageTitleCase,
-            routeGroupsStr,
-            modulePath,
-            funcName,
-            funcNameStr,
-            // funcNamePersistent,
-            action: actionStr,
-          })
-          routeGroupsStrs.push(renderized)
-        })
-      }
+    createRoutesFiles(modelsData, package_)
 
-      let routeGroupsStr = routeGroupsStrs.join('\n')
-
-      console.log(models)
-      let renderized = ejs.render(routesTemplate, {
-        package: packageCamelCase,
-        packageTitleCase,
-        routeGroupsStr,
-        modulePath,
-      })
-      fs.writeFileSync(routeFile, renderized, (err) => {
-        if (err) {
-          console.error('Error writing file:', err)
-        }
-      })
-    }
-
-    // persistent controllers
-    let templateContentPersistent = readTemplateData(
-      'emptyPersistentController'
-    )
+    createPersistentControllers(modelsData, package_)
+    let actualPackageData = actualModelsData[package_]
+    let actionStructs = {}
+    let controllerStructsTemplate = readTemplateData('controllerModels')
     for (const model of Object.keys(packageData)) {
-      let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
+      let { imports, modelCamelCase, fields } = createPackageDataVariables(
         model,
         packageData
       )
-      let renderized = ejs.render(templateContentPersistent, {
-        package: packageCamelCase,
-        modelCamelCase,
-        modelTitleCase: model,
-        imports,
-        packageTitleCase,
-        isDevEnv,
-      })
-
-      let controllerFile = path.join(
-        persistentControllerDir,
-        `${modelCamelCase}.go`
-      )
-      if (!fs.existsSync(controllerFile)) {
-        // do not overwrite
-        fs.writeFileSync(controllerFile, renderized, (err) => {
-          if (err) {
-            console.error('Error writing file:', err)
-          }
+      // console.log(model)
+      let fields_ = fields
+      actionStructs = []
+      for (let action in fields_) {
+        actionStructs[action] = ''
+        let fieldNames = fields_[action]
+        let fields = {}
+        for (let key of fieldNames) {
+          fields[key] = actualPackageData[model][key]
+        }
+        let parentModel: any = { value: false }
+        // console.log(fields)
+        for (let fieldKey in fields) {
+          // console.log(fieldKey)
+          let { field /*type /*, typeFromTypes */ } = createFieldVariables(
+            fields[fieldKey]
+          )
+          createRelationShips(fields, fieldKey, packageCamelCase, imports, true)
+          updateField(fields, field, fieldKey, parentModel, true)
+        }
+        // parentModel.value = false
+        for (let fieldKey in fields) {
+          let { field, type /*, typeFromTypes */ } = createFieldVariables(
+            fields[fieldKey]
+          )
+          addToImports(type, imports)
+          setDefaultFieldType(field)
+          // setPrimarykey(primary, fieldKey, field, imports)
+          setDefaultValue(field)
+          setFieldLength(field)
+          setTimeType(field)
+          setIntType(field)
+          setFloatType(field)
+          updateField(fields, field, fieldKey, parentModel)
+        }
+        actionStructs[action] = ejs.render(controllerStructsTemplate, {
+          package: packageCamelCase,
+          modelCamelCase,
+          modelTitleCase: model,
+          fields,
+          // Primary: primary,
+          imports,
+          packageTitleCase,
+          isDevEnv,
+          action: _.startCase(action),
         })
       }
-    }
-    for (const model of Object.keys(packageData)) {
-      let { imports, modelCamelCase /*, fields*/ } = createPackageDataVariables(
-        model,
-        packageData
-      )
-      // let parentModel: any = false
-      // for (let fieldKey in fields) {
-      //   let { field /*type /*, typeFromTypes */ } = createFieldVariables(
-      //     fields[fieldKey]
-      //   )
-      //   createRelationShips(fields, fieldKey, packageCamelCase, imports)
-      //   updateField(fields, field, fieldKey, parentModel)
-      // }
-      // // parentModel.value = false
-      // for (let fieldKey in fields) {
-      //   let { field, type /*, typeFromTypes */ } = createFieldVariables(
-      //     fields[fieldKey]
-      //   )
-      //   addToImports(type, imports)
-      //   setDefaultFieldType(field)
-      //   setPrimarykey(primary, fieldKey, field, imports)
-      //   setDefaultValue(field)
-      //   setFieldLength(field)
-      //   setTimeType(field)
-      //   setIntType(field)
-      //   setFloatType(field)
-      //   updateField(fields, field, fieldKey, parentModel)
-      // }
 
-      // console.log({ packageCamelCase, model , parentModel:parentModel})
+      let templateContent = readTemplateData('controllers')
       let renderized = ejs.render(templateContent, {
         package: packageCamelCase,
         modelCamelCase,
@@ -1375,9 +1457,8 @@ const processRoutes = async (supplied: any = false) => {
         imports,
         packageTitleCase,
         isDevEnv,
+        actionStructs,
       })
-      // correct modelFile name
-      // console.log(renderized)
 
       let controllerFile = path.join(controllerDir, `${modelCamelCase}.go`)
       // if (!fs.existsSync(controllerFile)) { // overwrite afterall

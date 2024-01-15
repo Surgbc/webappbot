@@ -1,4 +1,5 @@
 import {downloadFromDriveAndConvertToJson, processModels, rename, create, update, processRoutes} from "../webapp"
+import {swagger} from "../swagger"
 import {to} from "await-to-js"
 
 module.exports = (toolbox) => {
@@ -29,6 +30,18 @@ module.exports = (toolbox) => {
             if(!care && err)console.log(err)
 
             break;
+        case "processAll":
+            [err, care] = await to(processModels())
+            if(err){
+                return console.log(err)
+            }
+            if(!care && err)console.log(err)
+            ;[err, care] = await to(processRoutes(supplied))
+            if(err){
+                return console.log(err)
+            }
+            if(!care && err)console.log(err)
+            break;
         case "rename":
             [err, care] = await to(rename(args, supplied))
             if(err){
@@ -50,6 +63,13 @@ module.exports = (toolbox) => {
                 return console.log(err)
             }
             if(!care && err)console.log(err)
+            break;
+        case "swagger-delimiters":
+            swagger.removeDelims()
+            break;
+        case "swagger-init":
+            await to(swagger.runSwagInit())
+            swagger.removeDelims()
             break;
     }
   }
